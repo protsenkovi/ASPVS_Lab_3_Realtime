@@ -38,31 +38,27 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	pthread_barrier_init(barrierStart, NULL, 2);
+	pthread_barrierattr_t battr;
+	pthread_barrierattr_init(&battr);
+	pthread_barrierattr_setpshared(&battr, PTHREAD_PROCESS_SHARED);
+	pthread_barrier_init(barrierStart, &battr, 2);
 
 	char *argv0 = (char*)malloc(sizeof(float));
 	char *argv1 = (char*)malloc(sizeof(float));
-	char *argv2 = (char*)malloc(9*sizeof(char));
-	//*(char*)((int)argv + 2*sizeof(float) + 9*sizeof(char) - 1) = 0;
-	*(float*)((int)argv0) = dt;
-	//*(float*)((int)argv0 + 4) = T;
-	//(char*)((int)argv0 + 8) = barrier_shared_name;
-	//memcpy((char*)((int)argv0 + 8), "/bshared", strlen(barrier_shared_name) + 1);
+	char *argv2 = (char*)malloc(strlen(barrier_shared_name) + 1);
 	sprintf(argv0, "%f", dt);
-	//float d1t =  *(float*)((int)argv0);
-	float T1 =  0;//*(float*)((int)argv0 + 4);
-	char *barrier_name = "test";//(char*)((int)argv0 + 8);
-	printf("dt = %s, T = %f, barrier_name  = %s", argv0, T1, barrier_name);
-
+	sprintf(argv1, "%f", T);
+	sprintf(argv2, "%s", barrier_shared_name);
 	int pid_1 = spawnl(P_NOWAITO, "/tmp/P1", argv0, argv1, argv2, NULL);
 
 //	*(float*)((int)argv0) = deltaT;
 //	*(float*)((int)argv0 + 4) = T;
 //	*(char*)((int)argv0 + 8) = barrier_shared_name;
 //	int pid_2 = spawnl(P_NOWAITO, "/tmp/P2", argv0, NULL);
-
+	printf("barrier = %i, count = %i", barrierStart->__barrier, barrierStart->__count);
 	printf("P0 at barrier.\n");
 	pthread_barrier_wait(barrierStart);
+	printf("P0 after barrrier.\n");
 	close(fd);
 	printf("Huston, P0 is shutting down.\n");
 	return EXIT_SUCCESS;
