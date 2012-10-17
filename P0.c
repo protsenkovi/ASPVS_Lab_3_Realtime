@@ -18,7 +18,6 @@ int main(int argc, char *argv[]) {
 	printf("P0 started.\n");
 	int fd;
 	pthread_barrier_t *barrierStart;
-	printf("%i\n", sizeof(pthread_barrier_t));
 	shm_unlink(barrier_shared_name);
 	fd = shm_open(barrier_shared_name, O_CREAT | O_RDWR, 0777);
 	if(fd == -1) {
@@ -27,7 +26,6 @@ int main(int argc, char *argv[]) {
 
 		exit(EXIT_FAILURE);
 	}
-	printf("fields = %i\n", fd);
 	int status = ftruncate(fd, sizeof(pthread_barrier_t));
 	if ( status == -1 ) {
 		fprintf(stderr, "%s: Error truncating shared memory '%s': status: %i\n%s\n",
@@ -40,18 +38,28 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	pthread_barrier_init(barrierStart, NULL, 3);
+	pthread_barrier_init(barrierStart, NULL, 2);
 
-	char *argv0 = (char*)malloc(2*sizeof(float) + 7*sizeof(char));
+	char *argv0 = (char*)malloc(sizeof(float));
+	char *argv1 = (char*)malloc(sizeof(float));
+	char *argv2 = (char*)malloc(9*sizeof(char));
+	//*(char*)((int)argv + 2*sizeof(float) + 9*sizeof(char) - 1) = 0;
 	*(float*)((int)argv0) = dt;
-	*(float*)((int)argv0 + 4) = T;
-	*(char*)((int)argv0 + 8) = barrier_shared_name;
-	int pid_1 = spawnl(P_NOWAITO, "/tmp/P1.c", argv0, NULL);
+	//*(float*)((int)argv0 + 4) = T;
+	//(char*)((int)argv0 + 8) = barrier_shared_name;
+	//memcpy((char*)((int)argv0 + 8), "/bshared", strlen(barrier_shared_name) + 1);
+	sprintf(argv0, "%f", dt);
+	//float d1t =  *(float*)((int)argv0);
+	float T1 =  0;//*(float*)((int)argv0 + 4);
+	char *barrier_name = "test";//(char*)((int)argv0 + 8);
+	printf("dt = %s, T = %f, barrier_name  = %s", argv0, T1, barrier_name);
 
-	*(float*)((int)argv0) = deltaT;
-	*(float*)((int)argv0 + 4) = T;
-	*(char*)((int)argv0 + 8) = barrier_shared_name;
-	int pid_2 = spawnl(P_NOWAITO, "/tmp/P2.c", argv0, NULL);
+	int pid_1 = spawnl(P_NOWAITO, "/tmp/P1", argv0, argv1, argv2, NULL);
+
+//	*(float*)((int)argv0) = deltaT;
+//	*(float*)((int)argv0 + 4) = T;
+//	*(char*)((int)argv0 + 8) = barrier_shared_name;
+//	int pid_2 = spawnl(P_NOWAITO, "/tmp/P2", argv0, NULL);
 
 	printf("P0 at barrier.\n");
 	pthread_barrier_wait(barrierStart);
