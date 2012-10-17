@@ -18,24 +18,23 @@ const char *PROCNAME = "P1 process";
 
 int main(int argc, char *argv[]) {
 	printf("P1 started.\n");
-	char *argv0 = argv;
-	float dt =  *(float*)((int)argv0);
-	float T =  *(float*)((int)argv0 + 4);
-	char *barrier_name = (char*)((int)argv0 + 8);
-	printf("dt = %f, T = %f, barrier_name  = %s", dt, T, barrier_name);
+	float dt =  atof(argv[0]);
+	float T =  atof(argv[1]);
+	char *barrier_name = argv[2];
+	printf("dt = %f, T = %f, barrier_name  = %s\n", dt, T, barrier_name);
 
 	// Initializing barrier
 	pthread_barrier_t *barrierStart;
-	int	fd = shm_open(barrier_name, O_RDWR, 0);
+	int	fd = shm_open(barrier_name, O_RDWR, 0777);
 	if(fd == -1) {
-		fprintf(stderr, "%s: Error attaching shared memory '%s': $s\n",
+		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
 				PROCNAME, barrier_name, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	barrierStart = mmap(0, sizeof(pthread_barrier_t),
 						PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (barrierStart == MAP_FAILED) {
-		fprintf(stderr, "%s: Error shared mem maping. %s", PROCNAME, strerror(errno));
+		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
@@ -68,11 +67,12 @@ int main(int argc, char *argv[]) {
 	timerInterv.it_interval.tv_sec = 0;
 	timerInterv.it_interval.tv_nsec = dt * 1000000000;
 
+	printf("barrier = %i, count = %i", barrierStart->__barrier, barrierStart->__count);
 	// TODO shared memory
 	// barrier sharing problem  through shared memory?
-	printf("P1 before barrier");
+	printf("P1 before barrier\n");
 	pthread_barrier_wait(barrierStart);
-	printf("P1 after barrier");
+	printf("P1 after barrier\n");
 
 	return EXIT_SUCCESS;
 }
