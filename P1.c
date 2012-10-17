@@ -3,15 +3,41 @@
 #include <time.h>
 #include <sys/siginfo.h>
 #include <sys/neutrino.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#include <sys/neutrino.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <math.h>
 
-const char PROCNAME = "P1 process.";
+#define CODE_TIMER 1
+
+const char *PROCNAME = "P1 process";
 
 int main(int argc, char *argv[]) {
 	printf("P1 started.\n");
 	char *argv0 = argv;
 	float dt =  *(float*)((int)argv0);
 	float T =  *(float*)((int)argv0 + 4);
-	printf("dt = %f, T = %f", dt, T);
+	char *barrier_name = (char*)((int)argv0 + 8);
+	printf("dt = %f, T = %f, barrier_name  = %s", dt, T, barrier_name);
+
+	// Initializing barrier
+	pthread_barrier_t *barrierStart;
+	int	fd = shm_open(barrier_name, O_RDWR, 0);
+	if(fd == -1) {
+		fprintf(stderr, "%s: Error attaching shared memory '%s': $s\n",
+				PROCNAME, barrier_name, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	barrierStart = mmap(0, sizeof(pthread_barrier_t),
+						PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (barrierStart == MAP_FAILED) {
+		fprintf(stderr, "%s: Error shared mem maping. %s", PROCNAME, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
 
 	// Initializing interval timer.
 	timer_t timerid;
@@ -19,9 +45,9 @@ int main(int argc, char *argv[]) {
 	struct itimerspec timerInterv;
 	int chid, coid;
 	if ((chid = ChannelCreate(0)) == -1) {
-		fprintf(stdrerr, "%s: can't create channel!\n", PROCNAME);
+		fprintf(stderr, "%s: can't create channel!\n", PROCNAME);
 		perror(NULL);
-		exit(EXITE_FAILURE);
+		exit(EXIT_FAILURE);
 	}
 	// connect to own channel
 	coid = ConnectAttach(0, 0, chid, 0, 0);
@@ -42,8 +68,11 @@ int main(int argc, char *argv[]) {
 	timerInterv.it_interval.tv_sec = 0;
 	timerInterv.it_interval.tv_nsec = dt * 1000000000;
 
-	//TODO shared memory
+	// TODO shared memory
 	// barrier sharing problem  through shared memory?
+	printf("P1 before barrier");
+	pthread_barrier_wait(barrierStart);
+	printf("P1 after barrier");
 
 	return EXIT_SUCCESS;
 }
