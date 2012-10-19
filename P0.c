@@ -13,10 +13,9 @@
 #define T 3
 #define dt 0.03
 #define deltaT 0.2
-#define bthreads_max 1
 #define shared_mem_name "/memshared"
 const char *PROCNAME = "P0 process";
-int bthreads;
+int bthreads, bthreads_max;
 int flag_started = 0;
 int flag_terminating = 0;
 
@@ -43,7 +42,8 @@ static void sig_hndlr(int signo) {
 	}
 }
 
-void shared_mem_init(const char *name, double *var, int *fd) {
+// Tricky var initialization.
+void shared_mem_init(const char *name, double **var, int *fd) {
 	*fd = shm_open(name, O_CREAT | O_RDWR, 0777);
 	if(*fd == -1) {
 		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
@@ -57,13 +57,12 @@ void shared_mem_init(const char *name, double *var, int *fd) {
 						PROCNAME, name, status,strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	var = mmap(0, sizeof(double),
-		   PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0777);
-	if (var == MAP_FAILED) {
+	*var = mmap(0, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+	if (*var == MAP_FAILED) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	*var = 1.0;
+	**var = 1.0;
 }
 
 void timer_signal_init(int time) {
@@ -80,19 +79,29 @@ void timer_signal_init(int time) {
 	timer.it_interval.tv_nsec = 0;
 }
 
+void my_barrier() {
+	bthreads++;
+	while (!flag_started) {
+		pause();
+	}
+}
+
 int main(int argc, char *argv[]) {
 	printf("P0 started.\n");
 	int pid = getpid();
 
 	// Initializing barrier
 	bthreads = 0;
+	bthreads_max = 2;
 	signal(SIGUSR1, sig_hndlr);
 	signal(SIGUSR2, sig_hndlr);
 
-	// Initializing shared memory
-	double *shared_mem = (int*)malloc(sizeof(int));
+	// Initializing shared memory. To return from init_function pointer on mapped area
+	// we should use pointer on pointer.
+	double **shared_mem = (double**)malloc(sizeof(double));
 	int *fd_shared_mem = (int*)malloc(sizeof(int));
 	shared_mem_init(shared_mem_name, shared_mem, fd_shared_mem);
+	printf("P0 shared mem value after init = %f\n", **shared_mem);
 
 	// Initializing arguments for P1 and starting it.
 	char *argv0 = (char*)malloc(sizeof(float));
@@ -107,19 +116,16 @@ int main(int argc, char *argv[]) {
 	timer_signal_init(T);
 
 	printf("P0 at barrrier.\n");
-	while (!flag_started) {
-		pause();
-	}
+	my_barrier();
 	printf("P0 after barrrier.\n");
-
 
 	// Waiting for child processes exit.
 	waitpid(pid_1, NULL, WEXITED);
 	//waitpid(pid_2, NULL, WEXITED);
-
+	printf("P0 var = %f\n", **shared_mem);
 	// Closing shared memory
 	close(*fd_shared_mem);
-	shm_unlink(shared_mem);  // in some examples memory is unlinked just after getting fd value.
+	shm_unlink(shared_mem_name);  // in some examples memory is unlinked just after getting fd value.
 	printf("Huston, P0 is shutting down.\n");
 	return EXIT_SUCCESS;
 }
