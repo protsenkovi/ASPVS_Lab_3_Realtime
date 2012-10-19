@@ -14,8 +14,6 @@
 #include <signal.h>
 
 #define CODE_TIMER 1
-#define mutex_shared_name "/mshared"
-#define cond_var_shared_name "/condshared"
 
 const char *PROCNAME = "P1 process";
 
@@ -35,7 +33,7 @@ void shared_mutex_open(const char *name, pthread_mutex_t *mutex, int *fd) {
 	}
 }
 
-void shared_cond_var_open(const char *name, int *var, int *fd) {
+void shared_mem_open(const char *name, double *var, int *fd) {
 	*fd = shm_open(name, O_RDWR, 0777);
 	if(*fd == -1) {
 		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
@@ -43,7 +41,7 @@ void shared_cond_var_open(const char *name, int *var, int *fd) {
 
 		exit(EXIT_FAILURE);
 	}
-	var = mmap(0, sizeof(int),
+	var = mmap(0, sizeof(double),
 						PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0777);
 	if (var == MAP_FAILED) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
@@ -68,8 +66,8 @@ void my_barrier_wait(pthread_mutex_t *mutex, int *cond_var, int number_threads) 
 }
 
 timer_t timerid;
-struct sigevent eventInterv;
-struct itimerspec timerInterv;
+struct sigevent event;
+struct itimerspec timer;
 int chid;
 
 void timer_init(double dt) {
@@ -80,23 +78,23 @@ void timer_init(double dt) {
 		exit(EXIT_FAILURE);
 	}
 	// Connecting to own channel
-	coid = ConnectAttach(0, 0, chid, 0, 0);
+	coid = ConnectAttach(0, 0, chid, _NTO_SIDE_CHANNEL, 0);
 	if (coid == -1) {
 		fprintf(stderr, "%s: connection error", PROCNAME);
 		perror(NULL);
 		exit(EXIT_FAILURE);
 	}
-	SIGEV_PULSE_INIT(&eventInterv, coid, SIGEV_PULSE_PRIO_INHERIT, CODE_TIMER, 0);
+	SIGEV_PULSE_INIT(&event, coid, SIGEV_PULSE_PRIO_INHERIT, CODE_TIMER, 0);
 	// Creating timer
-	if (timer_create(CLOCK_REALTIME, &eventInterv, &timerInterv) == -1) {
+	if (timer_create(CLOCK_REALTIME, &event, &timerid) == -1) {
 		fprintf(stderr, "%s: timer creation error", PROCNAME);
 		perror(NULL);
 		exit(EXIT_FAILURE);
 	}
-	timerInterv.it_value.tv_sec = 0;
-	timerInterv.it_value.tv_nsec = 0;
-	timerInterv.it_interval.tv_sec = 0;
-	timerInterv.it_interval.tv_nsec = dt * 1000000000;
+	timer.it_value.tv_sec = 0;
+	timer.it_value.tv_nsec = dt * 1000000000;
+	timer.it_interval.tv_sec = 0;
+	timer.it_interval.tv_nsec = dt * 1000000000;
 }
 
 int flag_started = 0;
@@ -108,10 +106,15 @@ static void sigusr_hndlr(int signo) {
 	if (signo == SIGUSR1) {
 		printf("P1 after barrier. SIGUSR1 received.\n");
 		if (!flag_started) {
-			timer_settime(timerid, 0, &timer, NULL);
+			printf("P1 Starting timer. Timer id: %i, Timer interval: %i\n", timerid, timer.it_interval.tv_sec);
+			int status = timer_settime(timerid, 0, &timer, NULL);
+			printf("Start status: %i\n", status);
+			printf("P1 Timer id = %i\n", timerid);
+			flag_started = 1;
 		}
 	}
 	if (signo == SIGUSR2) {
+		printf("P1 on termination. SIGUSR2 received.\n");
 		if (flag_started) {
 			close(*fd_shared_mem);
 			exit(EXIT_SUCCESS);
@@ -123,9 +126,10 @@ double f(double t) {
 	return 100 * exp(-t) * cos(0.1*t + 100);
 }
 
-void timer_tick_handle() {
+void timer_tick_handle(double dt) {
 	t += dt;
 	*shared_mem = f(t);
+	printf("t = %f, f(t) = %f\n", t, *shared_mem);
 }
 
 int main(int argc, char *argv[]) {
@@ -145,23 +149,32 @@ int main(int argc, char *argv[]) {
 	shared_mem = (double*)malloc(sizeof(double));
 	fd_shared_mem = (int*)malloc(sizeof(int));
 	shared_mem_open(shared_mem_name, shared_mem, fd_shared_mem);
-	printf("3\n");
 
-	printf("P1: cond_var %i\n", *cond_var);
+	printf("P1: shared_mem %f\n", *shared_mem);
 
 	// Initializing interval timer.
 	timer_init(dt);
 
 	printf("P1 before barrier\n");
+	// Sending to P0 signal - "we are ready".
 	kill(ppid, SIGUSR1);
+	// Waiting for SIGUSR1 to come. It will switch flag to started.
 	while(!flag_started) {
 		pause();
 	}
+	printf("P1 after barrier\n");
 
+	int rcvid;
+	printf("P1 chid = %i\n", chid);
+	printf("_pulse struct size = %i\n", sizeof(struct _pulse));
 	struct _pulse *pulse;
+	char *buf = (char*)malloc(100);
 	while(1) {
-		MsgReceivePulse(chid, pulse, sizeof(struct pulse),NULL);
-		timer_tick_handle();
+		printf("P1 waiting for pulse\n");
+		rcvid = MsgReceive(chid, buf, 100,  NULL);
+		//MsgReceivePulse(chid, pulse, sizeof(struct _pulse),NULL);
+		printf("P1 pulse received\n");
+		timer_tick_handle(dt);
 	}
 	return EXIT_SUCCESS;
 }
