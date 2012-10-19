@@ -33,7 +33,8 @@ void shared_mutex_open(const char *name, pthread_mutex_t *mutex, int *fd) {
 	}
 }
 
-void shared_mem_open(const char *name, double *var, int *fd) {
+// Tricky var initialization.
+void shared_mem_open(const char *name, double **var, int *fd) {
 	*fd = shm_open(name, O_RDWR, 0777);
 	if(*fd == -1) {
 		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
@@ -41,27 +42,10 @@ void shared_mem_open(const char *name, double *var, int *fd) {
 
 		exit(EXIT_FAILURE);
 	}
-	var = mmap(0, sizeof(double),
-						PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0777);
-	if (var == MAP_FAILED) {
+	*var = mmap(0, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+	if (*var == MAP_FAILED) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
-	}
-}
-
-void my_barrier_wait(pthread_mutex_t *mutex, int *cond_var, int number_threads) {
-	int condition = 1; printf("4\n");
-	pthread_mutex_lock(mutex); printf("5\n");
-	*cond_var = *cond_var + 1;
-	condition =(*cond_var < number_threads); printf("6\n");
-	pthread_mutex_unlock(mutex);
-	printf("7\n");
-	while(condition) {
-		printf("%i im am still working. cond_var = %i\n", getpid(), *cond_var);
-		pthread_mutex_lock(mutex);
-		condition =(*cond_var < number_threads);
-		pthread_mutex_unlock(mutex);
-		sleep(10);
 	}
 }
 
@@ -92,14 +76,14 @@ void timer_init(double dt) {
 		exit(EXIT_FAILURE);
 	}
 	timer.it_value.tv_sec = 0;
-	timer.it_value.tv_nsec = dt * 1000000000;
+	timer.it_value.tv_nsec = dt * 1000000000; // 0 in it_value struct would not lunch timer
 	timer.it_interval.tv_sec = 0;
 	timer.it_interval.tv_nsec = dt * 1000000000;
 }
 
 int flag_started = 0;
 int *fd_shared_mem;
-double* shared_mem;
+double **shared_mem;
 double t;
 
 static void sigusr_hndlr(int signo) {
@@ -128,8 +112,8 @@ double f(double t) {
 
 void timer_tick_handle(double dt) {
 	t += dt;
-	*shared_mem = f(t);
-	printf("t = %f, f(t) = %f\n", t, *shared_mem);
+	**shared_mem = f(t);
+	//printf("t = %f, f(t) = %f\n", t, *shared_mem);
 }
 
 int main(int argc, char *argv[]) {
@@ -146,11 +130,11 @@ int main(int argc, char *argv[]) {
 	signal(SIGUSR2, sigusr_hndlr);
 
 	// Initializing shared memory
-	shared_mem = (double*)malloc(sizeof(double));
+	shared_mem = (double**)malloc(sizeof(double));
 	fd_shared_mem = (int*)malloc(sizeof(int));
 	shared_mem_open(shared_mem_name, shared_mem, fd_shared_mem);
 
-	printf("P1: shared_mem %f\n", *shared_mem);
+	printf("P1: shared_mem %f\n", **shared_mem);
 
 	// Initializing interval timer.
 	timer_init(dt);
@@ -164,16 +148,8 @@ int main(int argc, char *argv[]) {
 	}
 	printf("P1 after barrier\n");
 
-	int rcvid;
-	printf("P1 chid = %i\n", chid);
-	printf("_pulse struct size = %i\n", sizeof(struct _pulse));
-	struct _pulse *pulse;
-	char *buf = (char*)malloc(100);
 	while(1) {
-		printf("P1 waiting for pulse\n");
-		rcvid = MsgReceive(chid, buf, 100,  NULL);
-		//MsgReceivePulse(chid, pulse, sizeof(struct _pulse),NULL);
-		printf("P1 pulse received\n");
+		MsgReceivePulse(chid, NULL, 0, NULL); // No buffer.
 		timer_tick_handle(dt);
 	}
 	return EXIT_SUCCESS;
