@@ -1,25 +1,35 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <process.h>
-#include <stddef.h>
+#include <time.h>
+#include <sys/siginfo.h>
+#include <sys/neutrino.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#include <sys/neutrino.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <math.h>
+#include <signal.h>
+
+#define CODE_TIMER 1
+
+const char *PROCNAME = "P2 process.";
+
 
 int main(int argc, char *argv[]) {
-	printf("P1 started.\n");
-	char *argv0 = argv;
-
-	float dt =  *(float*)((int)argv0);
-	float T =  *(float*)((int)argv0 + 4);
-	printf("dt = %f, T = %f", dt, T);
+	printf("P2 started.\n");
 
 	// Initializing interval timer.
 	timer_t timerid;
-	struct sigevent eventInterv; // one sigvevent for two timers possible?
-	struct itimerspec timerInterv;
+	struct sigevent event; // one sigvevent for two timers possible?
+	struct itimerspec timer;
 	int chid, coid;
 	if ((chid = ChannelCreate(0)) == -1) {
-		fprintf(stdrerr, "%s: can't create channel!\n", PROCNAME);
+		fprintf(stderr, "%s: can't create channel!\n", PROCNAME);
 		perror(NULL);
-		exit(EXITE_FAILURE);
+		exit(EXIT_FAILURE);
 	}
 	// connect to own channel
 	coid = ConnectAttach(0, 0, chid, 0, 0);
@@ -28,19 +38,29 @@ int main(int argc, char *argv[]) {
 		perror(NULL);
 		exit(EXIT_FAILURE);
 	}
-	SIGEV_PULSE_INIT(&eventInterv, coid, SIGEV_PULSE_PRIO_INHERIT, CODE_TIMER, 0);
+	SIGEV_PULSE_INIT(&event, coid, SIGEV_PULSE_PRIO_INHERIT, CODE_TIMER, 0);
 	// create timer
-	if (timer_create(CLOCK_REALTIME, &eventInterv, &timerInterv) == -1) {
+	if (timer_create(CLOCK_REALTIME, &event, &timerid) == -1) {
 		fprintf(stderr, "%s: timer creation error", PROCNAME);
 		perror(NULL);
 		exit(EXIT_FAILURE);
 	}
-	timerInterv.it_value.tv_sec = 0;
-	timerInterv.it_value.tv_nsec = 0;
-	timerInterv.it_interval.tv_sec = 0;
-	timerInterv.it_interval.tv_nsec = dt * 1000000000;
+	timer.it_value.tv_sec = 1;
+	timer.it_value.tv_nsec = 0;
+	timer.it_interval.tv_sec = 1;
+	timer.it_interval.tv_nsec = 0;
 
-	//TODO Shared memory
-	//TODO barrier
+	timer_settime(timerid, 0, &timer, NULL);
+
+	int rcvid;
+	struct _pulse *pulse;
+	char *buf = (char*)malloc(100);
+	while(1) {
+		printf("P1 waiting for pulse\n");
+		rcvid = MsgReceive(chid, buf, 100,  NULL);
+		//MsgReceivePulse(chid, pulse, sizeof(struct _pulse),NULL);
+		printf("P1 pulse received\n");
+
+	}
 	return EXIT_SUCCESS;
 }
