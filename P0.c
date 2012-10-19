@@ -7,59 +7,119 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
+#include <time.h>
 
-#define T 83.0
+#define T 3
 #define dt 0.03
 #define deltaT 0.2
-#define barrier_shared_name "/bshared"
+#define bthreads_max 1
+#define shared_mem_name "/memshared"
 const char *PROCNAME = "P0 process";
+int bthreads;
+int flag_started = 0;
+int flag_terminating = 0;
 
-int main(int argc, char *argv[]) {
-	printf("P0 started.\n");
-	int fd;
-	pthread_barrier_t *barrierStart;
-	shm_unlink(barrier_shared_name);
-	fd = shm_open(barrier_shared_name, O_CREAT | O_RDWR, 0777);
-	if(fd == -1) {
+timer_t timerid;
+struct sigevent event;
+struct itimerspec timer;
+
+static void sig_hndlr(int signo) {
+	if (signo == SIGUSR1) {
+		printf("P0 Got SIGUSR1\n");
+		bthreads++;
+		if ((!flag_started) && (bthreads >= bthreads_max)) {
+			kill(0, SIGUSR1); //broadcasting start signal
+			timer_settime(timerid, 0, &timer, NULL);
+			flag_started = 1;
+		}
+	}
+	if (signo == SIGUSR2) {
+		printf("P0 got SIGUSR2\n");
+		if (!flag_terminating) {
+			kill(0, SIGUSR2);
+			flag_terminating = 1;
+		}
+	}
+}
+
+void shared_mem_init(const char *name, double *var, int *fd) {
+	*fd = shm_open(name, O_CREAT | O_RDWR, 0777);
+	if(*fd == -1) {
 		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
-				PROCNAME, barrier_shared_name, strerror(errno));
+				PROCNAME, name, strerror(errno));
 
 		exit(EXIT_FAILURE);
 	}
-	int status = ftruncate(fd, sizeof(pthread_barrier_t));
+	int status = ftruncate(*fd, sizeof(double));
 	if ( status == -1 ) {
 		fprintf(stderr, "%s: Error truncating shared memory '%s': status: %i\n%s\n",
-						PROCNAME, barrier_shared_name, status,strerror(errno));
+						PROCNAME, name, status,strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	barrierStart = mmap(0, sizeof(pthread_barrier_t),
-						PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0777);
-	if (barrierStart == MAP_FAILED) {
+	var = mmap(0, sizeof(double),
+		   PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0777);
+	if (var == MAP_FAILED) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	pthread_barrierattr_t battr;
-	pthread_barrierattr_init(&battr);
-	pthread_barrierattr_setpshared(&battr, PTHREAD_PROCESS_SHARED);
-	pthread_barrier_init(barrierStart, &battr, 2);
+	*var = 1.0;
+}
 
+void timer_signal_init(int time) {
+	SIGEV_SIGNAL_INIT(&event, SIGUSR2);
+	// Creating timer
+	if (timer_create(CLOCK_REALTIME, &event, &timerid) == -1) {
+		fprintf(stderr, "%s: timer creation error", PROCNAME);
+		perror(NULL);
+		exit(EXIT_FAILURE);
+	}
+	timer.it_value.tv_sec = time;
+	timer.it_value.tv_nsec = 0;
+	timer.it_interval.tv_sec = 0;
+	timer.it_interval.tv_nsec = 0;
+}
+
+int main(int argc, char *argv[]) {
+	printf("P0 started.\n");
+	int pid = getpid();
+
+	// Initializing barrier
+	bthreads = 0;
+	signal(SIGUSR1, sig_hndlr);
+	signal(SIGUSR2, sig_hndlr);
+
+	// Initializing shared memory
+	double *shared_mem = (int*)malloc(sizeof(int));
+	int *fd_shared_mem = (int*)malloc(sizeof(int));
+	shared_mem_init(shared_mem_name, shared_mem, fd_shared_mem);
+
+	// Initializing arguments for P1 and starting it.
 	char *argv0 = (char*)malloc(sizeof(float));
 	char *argv1 = (char*)malloc(sizeof(float));
-	char *argv2 = (char*)malloc(strlen(barrier_shared_name) + 1);
-	sprintf(argv0, "%f", dt);
-	sprintf(argv1, "%f", T);
-	sprintf(argv2, "%s", barrier_shared_name);
-	int pid_1 = spawnl(P_NOWAITO, "/tmp/P1", argv0, argv1, argv2, NULL);
+	char *argv2 = (char*)malloc(strlen(shared_mem_name) + 1);
+	sprintf(argv0, "%i", pid);
+	sprintf(argv1, "%f", dt);
+	sprintf(argv2, "%s", shared_mem_name);
+	int pid_1 = spawnl(P_NOWAIT, "/tmp/P1", argv0, argv1, argv2, NULL);
 
-//	*(float*)((int)argv0) = deltaT;
-//	*(float*)((int)argv0 + 4) = T;
-//	*(char*)((int)argv0 + 8) = barrier_shared_name;
-//	int pid_2 = spawnl(P_NOWAITO, "/tmp/P2", argv0, NULL);
-	printf("barrier = %i, count = %i", barrierStart->__barrier, barrierStart->__count);
-	printf("P0 at barrier.\n");
-	pthread_barrier_wait(barrierStart);
+	// Initializing one-shot timer for P1, P2 termination. Notification by signal - SIGUSR2.
+	timer_signal_init(T);
+
+	printf("P0 at barrrier.\n");
+	while (!flag_started) {
+		pause();
+	}
 	printf("P0 after barrrier.\n");
-	close(fd);
+
+
+	// Waiting for child processes exit.
+	waitpid(pid_1, NULL, WEXITED);
+	//waitpid(pid_2, NULL, WEXITED);
+
+	// Closing shared memory
+	close(*fd_shared_mem);
+	shm_unlink(shared_mem);  // in some examples memory is unlinked just after getting fd value.
 	printf("Huston, P0 is shutting down.\n");
 	return EXIT_SUCCESS;
 }
