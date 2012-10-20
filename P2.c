@@ -16,15 +16,14 @@
 #define CODE_TIMER 1
 #define RESULTS_FILE_FULL_NAME "/tmp/results.txt"
 const char *PROCNAME = "P2 process.";
-
+int *fd_shared_mem;
+double **shared_mem;
+char *shared_mem_name;
 timer_t timerid;
 struct sigevent event;
 struct itimerspec timer;
 
 int flag_started = 0;
-int *fd_shared_mem;
-double **shared_mem;
-char *shared_mem_name;
 double t;
 float deltaT;
 
@@ -32,7 +31,7 @@ FILE *resultFile;
 
 void timer_tick_handle() {
 	t += deltaT;
-	//fprintf(resultFile, "%f %f", t, **shared_mem);
+	fprintf(resultFile, "%f %f\n", t, **shared_mem);
 }
 
 static void sig_hndlr(int signo) {
@@ -41,7 +40,7 @@ static void sig_hndlr(int signo) {
 		if (!flag_started) {
 			printf("P2 Starting timer. Timer id: %i, Timer interval: %i\n", timerid, timer.it_interval.tv_nsec);
 
-			// Shared mem init
+			// Conneting to shared memory
 			shared_mem_open(shared_mem_name, shared_mem, fd_shared_mem);
 
 			int status = timer_settime(timerid, 0, &timer, NULL);
@@ -107,9 +106,12 @@ void shared_mem_open(const char *name, double **var, int *fd) {
 int main(int argc, char *argv[]) {
 	printf("P2 started. Gid = %i\n", getgid());
 	t = 0;
-	int ppid =  0;//atoi(argv[0]);
-	deltaT =  0.5;//atof(argv[1]);
-	shared_mem_name = "/memshared";//argv[2];
+	shared_mem = (double**)malloc(sizeof(double));
+	fd_shared_mem = (int*)malloc(sizeof(int));
+
+	int ppid =  atoi(argv[0]);
+	deltaT =  atof(argv[1]);
+	shared_mem_name = argv[2];
 	printf("P2 ppid = %i, dt = %f,  shared_mem_name = %s\n", ppid, deltaT,  shared_mem_name);
 	printf("P2 Flag started ptr = %i, val = %i\n", &flag_started, flag_started);
 
@@ -127,16 +129,12 @@ int main(int argc, char *argv[]) {
 	// Sending to P0 signal - "we are ready".
 	kill(ppid, SIGUSR1);
 
-	// test kill
-	kill(getpid(), SIGUSR1);
-
 	// Waiting for SIGUSR1 to come. It will switch flag to started.
 	while(!flag_started) {
 		pause();
 	}
 
 	printf("P2 after barrier\n");
-	printf("P2 GID = %i\n", getgid());
 	while(1) {
 		pause();
 	}
