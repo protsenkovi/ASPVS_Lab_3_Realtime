@@ -13,17 +13,19 @@
 #include <math.h>
 #include <signal.h>
 
-#define CODE_TIMER 1
-
 const char *PROCNAME = "P1 process";
 
 timer_t timerid;
 struct sigevent event;
 struct itimerspec timer;
 
-int flag_started = 0;
 int *fd_shared_mem;
 double **shared_mem;
+
+int *fd_shared_mutex;
+pthread_mutex_t **shared_mutex;
+
+int flag_started = 0;
 double t, dt;
 
 // Tricky var initialization.
@@ -37,6 +39,22 @@ void shared_mem_open(const char *name, double **var, int *fd) {
 	}
 	*var = mmap(0, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
 	if (*var == MAP_FAILED) {
+		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	close(*fd);
+}
+
+void shared_mutex_open(const char *name, double **mutex, int *fd) {
+	*fd = shm_open(name, O_RDWR, 0777);
+	if(*fd == -1) {
+		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
+				PROCNAME, name, strerror(errno));
+
+		exit(EXIT_FAILURE);
+	}
+	*mutex = mmap(0, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+	if (*mutex == MAP_FAILED) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
@@ -63,7 +81,9 @@ double f(double t) {
 
 void timer_tick_handle() {
 	t += dt;
+	pthread_mutex_lock(*shared_mutex);
 	**shared_mem = f(t);
+	pthread_mutex_unlock(*shared_mutex);
 }
 
 static void sig_hndlr(int signo) {
@@ -86,15 +106,27 @@ static void sig_hndlr(int signo) {
 	}
 }
 
+void my_barrier(int ppid) {
+	// Sending to P0 signal - "we are ready".
+	kill(ppid, SIGUSR1);
+	// Waiting for SIGUSR1 to come. It will switch flag to started.
+	while(!flag_started) {
+		pause();
+	}
+}
+
 int main(int argc, char *argv[]) {
 	printf(" P1 started. Gid = %i\n", getgid());
 	t = 0;
 	shared_mem = (double**)malloc(sizeof(double));
 	fd_shared_mem = (int*)malloc(sizeof(int));
+	shared_mutex = (pthread_mutex_t**)malloc(sizeof(pthread_mutex_t));
+	fd_shared_mutex = (int*)malloc(sizeof(int));
 
 	int ppid =  atoi(argv[0]);
 	dt =  atof(argv[1]);
 	char *shared_mem_name = argv[2];
+	char *shared_mutex_name = argv[3];
 	printf(" P1 ppid = %i, dt = %f,  shared_mem_name = %s\n", ppid, dt,  shared_mem_name);
 
 	// Initializing signal handlers.
@@ -104,17 +136,13 @@ int main(int argc, char *argv[]) {
 
 	// Connecting to shared memory
 	shared_mem_open(shared_mem_name, shared_mem, fd_shared_mem);
+	shared_mutex_open(shared_mutex_name, shared_mutex, fd_shared_mutex);
 
 	// Initializing timer
 	timer_signal_init(dt);
 
 	printf(" P1 before barrier\n");
-	// Sending to P0 signal - "we are ready".
-	kill(ppid, SIGUSR1);
-	// Waiting for SIGUSR1 to come. It will switch flag to started.
-	while(!flag_started) {
-		pause();
-	}
+	my_barrier(ppid);
 	printf(" P1 after barrier\n");
 
 	// Main loop waiting for signals.
