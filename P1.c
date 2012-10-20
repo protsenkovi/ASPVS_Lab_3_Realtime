@@ -47,6 +47,7 @@ void shared_mem_open(const char *name, double **var, int *fd) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
+	close(*fd);
 }
 
 timer_t timerid;
@@ -54,7 +55,7 @@ struct sigevent event;
 struct itimerspec timer;
 int chid;
 
-void timer_init(double dt) {
+void timer_pulse_init(double dt) {
 	int coid;
 	if ((chid = ChannelCreate(0)) == -1) {
 		fprintf(stderr, "%s: can't create channel!\n", PROCNAME);
@@ -90,9 +91,9 @@ static void sigusr_hndlr(int signo) {
 	if (signo == SIGUSR1) {
 		printf("P1 after barrier. SIGUSR1 received.\n");
 		if (!flag_started) {
-			printf("P1 Starting timer. Timer id: %i, Timer interval: %i\n", timerid, timer.it_interval.tv_sec);
+			printf("P1 Starting timer. Timer id: %i, Timer interval: %i\n", timerid, timer.it_interval.tv_nsec);
 			int status = timer_settime(timerid, 0, &timer, NULL);
-			printf("Start status: %i\n", status);
+			printf("P1 start status: %i\n", status);
 			printf("P1 Timer id = %i\n", timerid);
 			flag_started = 1;
 		}
@@ -113,16 +114,15 @@ double f(double t) {
 void timer_tick_handle(double dt) {
 	t += dt;
 	**shared_mem = f(t);
-	//printf("t = %f, f(t) = %f\n", t, *shared_mem);
 }
 
 int main(int argc, char *argv[]) {
-	printf("P1 started.\n");
+	printf("P1 started. Gid = %i\n", getgid());
 	t = 0;
 	int ppid =  atoi(argv[0]);
 	float dt =  atof(argv[1]);
 	char *shared_mem_name = argv[2];
-	printf("ppid = %i, dt = %f,  shared_mem_name = %s\n", ppid, dt,  shared_mem_name);
+	printf("P1 ppid = %i, dt = %f,  shared_mem_name = %s\n", ppid, dt,  shared_mem_name);
 
 	// Initializing signal handlers.
 	// SIGUSR1 - sync signal. SIGUSR2 - terminating signal.
@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
 	printf("P1: shared_mem %f\n", **shared_mem);
 
 	// Initializing interval timer.
-	timer_init(dt);
+	timer_pulse_init(dt);
 
 	printf("P1 before barrier\n");
 	// Sending to P0 signal - "we are ready".
