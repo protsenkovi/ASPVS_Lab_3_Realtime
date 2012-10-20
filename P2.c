@@ -16,11 +16,16 @@
 #define CODE_TIMER 1
 #define RESULTS_FILE_FULL_NAME "/tmp/results.txt"
 const char *PROCNAME = "P2 process.";
-int *fd_shared_mem;
-double **shared_mem;
+
 timer_t timerid;
 struct sigevent event;
 struct itimerspec timer;
+
+int *fd_shared_mem;
+double **shared_mem;
+
+int *fd_shared_mutex;
+pthread_mutex_t **shared_mutex;
 
 int flag_started = 0;
 double t, deltaT;
@@ -28,6 +33,42 @@ double t, deltaT;
 
 int chid;
 FILE *resultFile;
+
+// Tricky var initialization. Read only.
+void shared_mem_open(const char *name, double **var, int *fd) {
+	printf("  P2 Opening shared memory: %s\n", name);
+	*fd = shm_open(name, O_RDONLY, 0777);
+	printf("  P2 Checking for errors after shm_open.\n");
+	if(*fd == -1) {
+		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
+				PROCNAME, name, strerror(errno));
+
+		exit(EXIT_FAILURE);
+	}
+	printf("  P2 Mapping memory\n");
+	*var = mmap(0, sizeof(double), PROT_READ, MAP_SHARED, *fd, 0);
+	if (*var == MAP_FAILED) {
+		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	printf("  P2 Shared opened\n");
+}
+
+void shared_mutex_open(const char *name, double **mutex, int *fd) {
+	*fd = shm_open(name, O_RDWR, 0777);
+	if(*fd == -1) {
+		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
+				PROCNAME, name, strerror(errno));
+
+		exit(EXIT_FAILURE);
+	}
+	*mutex = mmap(0, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+	if (*mutex == MAP_FAILED) {
+		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	close(*fd);
+}
 
 static void sig_hndlr(int signo) {
 	if (signo == SIGUSR1) {
@@ -75,29 +116,22 @@ void timer_pulse_init(double dt) {
 	timer.it_interval.tv_nsec = dt * 1000000000;
 }
 
-// Tricky var initialization.
-void shared_mem_open(const char *name, double **var, int *fd) {
-	printf("  P2 Opening shared memory: %s\n", name);
-	*fd = shm_open(name, O_RDONLY, 0777);
-	printf("  P2 Checking for errors after shm_open.\n");
-	if(*fd == -1) {
-		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
-				PROCNAME, name, strerror(errno));
-
-		exit(EXIT_FAILURE);
-	}
-	printf("  P2 Mapping memory\n");
-	*var = mmap(0, sizeof(double), PROT_READ, MAP_SHARED, *fd, 0);
-	if (*var == MAP_FAILED) {
-		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-	printf("  P2 Shared opened\n");
+void timer_tick_handle() {
+	static double temp_value = 0;
+	t += deltaT;
+	pthread_mutex_lock(*shared_mutex);
+	temp_value = **shared_mem;
+	pthread_mutex_unlock(*shared_mutex);
+	fprintf(resultFile, "%f %f\n", t, temp_value);
 }
 
-void timer_tick_handle() {
-	t += deltaT;
-	fprintf(resultFile, "%f %f\n", t, **shared_mem);
+void my_barrier(int ppid) {
+	// Sending to P0 signal - "we are ready".
+	kill(ppid, SIGUSR1);
+	// Waiting for SIGUSR1 to come. It will switch flag to started.
+	while(!flag_started) {
+		pause();
+	}
 }
 
 int main(int argc, char *argv[]) {
@@ -105,10 +139,13 @@ int main(int argc, char *argv[]) {
 	t = 0;
 	shared_mem = (double**)malloc(sizeof(double));
 	fd_shared_mem = (int*)malloc(sizeof(int));
+	shared_mutex = (pthread_mutex_t**)malloc(sizeof(pthread_mutex_t));
+	fd_shared_mutex = (int*)malloc(sizeof(int));
 
 	int ppid =  atoi(argv[0]);
 	deltaT =  atof(argv[1]);
 	char *shared_mem_name = argv[2];
+	char *shared_mutex_name = argv[3];
 	printf("  P2 ppid = %i, dt = %f,  shared_mem_name = %s\n", ppid, deltaT,  shared_mem_name);
 	printf("  P2 Flag started ptr = %i, val = %i\n", &flag_started, flag_started);
 
@@ -118,6 +155,7 @@ int main(int argc, char *argv[]) {
 
 	// Conneting to shared memory
 	shared_mem_open(shared_mem_name, shared_mem, fd_shared_mem);
+	shared_mutex_open(shared_mutex_name, shared_mutex, fd_shared_mutex);
 
 	// Opening file to write trend
 	resultFile = fopen(RESULTS_FILE_FULL_NAME, "w+");
@@ -126,13 +164,7 @@ int main(int argc, char *argv[]) {
 	timer_pulse_init(deltaT);
 
 	printf("  P2 before barrier\n");
-	// Sending to P0 signal - "we are ready".
-	kill(ppid, SIGUSR1);
-
-	// Waiting for SIGUSR1 to come. It will switch flag to started.
-	while(!flag_started) {
-		pause();
-	}
+	my_barrier(ppid);
 	printf("  P2 after barrier\n");
 
 	// Main loop waiting for pulse messages.
