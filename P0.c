@@ -29,6 +29,7 @@ static void sig_hndlr(int signo) {
 		bthreads++;
 		if ((!flag_started) && (bthreads >= bthreads_max)) {
 			kill(0, SIGUSR1); //broadcasting start signal
+			printf("P0 Starting timer. Timer id: %i, Timer interval (sec): %i\n", timerid, timer.it_value.tv_sec);
 			timer_settime(timerid, 0, &timer, NULL);
 			flag_started = 1;
 		}
@@ -123,9 +124,9 @@ int main(int argc, char *argv[]) {
 	// Initializing one-shot timer for P1, P2 termination. Notification by signal - SIGUSR2.
 	timer_signal_init(T);
 
-	printf("P0 at barrrier.\n");
+	printf("P0 at barrier\n");
 	my_barrier();
-	printf("P0 after barrrier.\n");
+	printf("P0 after barrier\n");
 
 	// Separating part of process, where user signals could interrupt waitpid().
 	while(!flag_terminating) {
