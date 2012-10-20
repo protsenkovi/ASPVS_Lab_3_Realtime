@@ -21,7 +21,7 @@ timer_t timerid;
 struct sigevent event;
 struct itimerspec timer;
 
-int flag_started = 0;
+static int flag_started = 0;
 int *fd_shared_mem;
 double **shared_mem;
 double t;
@@ -31,7 +31,6 @@ FILE *resultFile;
 
 void timer_tick_handle() {
 	t += deltaT;
-	printf("P2 tick");
 	fprintf(resultFile, "%f %f", t, **shared_mem);
 }
 
@@ -44,10 +43,13 @@ static void sig_hndlr(int signo) {
 			printf("P2 start status: %i\n", status);
 			printf("P2 Timer id = %i\n", timerid);
 			flag_started = 1;
+			printf("P2 start complete.\n");
 		} else
 		{
+			printf("P2 tick");
 			timer_tick_handle();
 		}
+		printf("P2 sig_hndlr SIGUSR1 end\n");
 	} else
 	if (signo == SIGUSR2) {
 			printf("P2 on termination. SIGUSR2 received.\n");
@@ -56,10 +58,8 @@ static void sig_hndlr(int signo) {
 				close(resultFile);
 				exit(EXIT_SUCCESS);
 			}
-	} else
-	{
-		fprintf(resultFile,"P2 interrupted by signal = %i\n", signo);
 	}
+	printf("P2 sig_hndlr end\n");
 }
 
 void timer_signal_init(double deltaT) {
@@ -70,16 +70,16 @@ void timer_signal_init(double deltaT) {
 		perror(NULL);
 		exit(EXIT_FAILURE);
 	}
-	timer.it_value.tv_sec = 0;
-	timer.it_value.tv_nsec = deltaT * 1000000000; // 0 in it_value struct would not lunch timer
+	timer.it_value.tv_sec = 10;
+	timer.it_value.tv_nsec = 0;//deltaT * 1000000000; // 0 in it_value struct would not lunch timer
 	timer.it_interval.tv_sec = 0;
-	timer.it_interval.tv_nsec = deltaT * 1000000000;
+	timer.it_interval.tv_nsec = 0;//deltaT * 1000000000;
 	printf("P2 timer tv_nsec = %i\n ", timer.it_value.tv_nsec);
 	printf("P2 timer val tv_nsec = %i\n", timer.it_interval.tv_nsec);
 }
 
 int main(int argc, char *argv[]) {
-	printf("P2 started.\n");
+	printf("P2 started. Gid = %i\n", getgid());
 	t = 0;
 	int ppid =  atoi(argv[0]);
 	deltaT =  atof(argv[1]);
@@ -89,12 +89,6 @@ int main(int argc, char *argv[]) {
 	// Initializing signals
 	signal(SIGUSR1, sig_hndlr);
 	signal(SIGUSR2, sig_hndlr);
-	signal(11, SIG_IGN);
-	int sig;
-	for(sig = _SIGMIN; sig <= _SIGMAX; sig++) {
-		if (sig != 11)
-			signal(sig, sig_hndlr);
-	}
 
 	// Opening file to write trend
 	resultFile = fopen(RESULTS_FILE_FULL_NAME, "w+");
@@ -110,12 +104,10 @@ int main(int argc, char *argv[]) {
 		pause();
 	}
 	printf("P2 after barrier\n");
+	printf("P2 GID = %i\n", getgid());
+	pause();
+	printf("P2 Before close");
 
-	while(1) {
-		printf("P2 waiting for signal\n");
-		pause();
-		printf("P2 interrupted by signal\n");
-	}
 	close(resultFile);
 	return EXIT_SUCCESS;
 }
