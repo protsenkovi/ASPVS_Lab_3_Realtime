@@ -63,6 +63,7 @@ void shared_mem_init(const char *name, double **var, int *fd) {
 		exit(EXIT_FAILURE);
 	}
 	**var = 1.0;
+	close(*fd);
 }
 
 void timer_signal_init(int time) {
@@ -87,12 +88,13 @@ void my_barrier() {
 }
 
 int main(int argc, char *argv[]) {
-	printf("P0 started.\n");
+	printf("P0 started. Gid = %i\n", getgid());
 	int pid = getpid();
+	printf("P0 flag_started ptr = %i, val = %i", &flag_started, flag_started);
 
 	// Initializing barrier
 	bthreads = 0;
-	bthreads_max = 2;
+	bthreads_max = 3;
 	signal(SIGUSR1, sig_hndlr);
 	signal(SIGUSR2, sig_hndlr);
 
@@ -112,6 +114,12 @@ int main(int argc, char *argv[]) {
 	sprintf(argv2, "%s", shared_mem_name);
 	int pid_1 = spawnl(P_NOWAIT, "/tmp/P1", argv0, argv1, argv2, NULL);
 
+	// Initializing arguments for P2 and starting it.
+	sprintf(argv0, "%i", pid);
+	sprintf(argv1, "%f", deltaT);
+	sprintf(argv2, "%s", shared_mem_name);
+	int pid_2 = spawnl(P_NOWAIT, "/tmp/P2", argv0, argv1, argv2, NULL);
+
 	// Initializing one-shot timer for P1, P2 termination. Notification by signal - SIGUSR2.
 	timer_signal_init(T);
 
@@ -119,10 +127,16 @@ int main(int argc, char *argv[]) {
 	my_barrier();
 	printf("P0 after barrrier.\n");
 
+	// Separating part of process, where user signals could interrupt waitpid().
+	while(!flag_terminating) {
+		pause();
+	}
 	// Waiting for child processes exit.
-	waitpid(pid_1, NULL, WEXITED);
-	//waitpid(pid_2, NULL, WEXITED);
-	printf("P0 var = %f\n", **shared_mem);
+	int st1 = waitpid(pid_1, NULL, WEXITED);
+	printf("P0 :P1 termination status %i, errno = %i\n", st1, errno);
+	int st2 = waitpid(pid_2, NULL, WEXITED);
+	printf("P0 :P2 termination status %i, errno = %i\n", st2, errno);
+	printf("P0 Last value of shared_mem = %f\n", **shared_mem);
 	// Closing shared memory
 	close(*fd_shared_mem);
 	shm_unlink(shared_mem_name);  // in some examples memory is unlinked just after getting fd value.
