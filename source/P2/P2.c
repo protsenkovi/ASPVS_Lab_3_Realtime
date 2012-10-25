@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <math.h>
 #include <signal.h>
+#include <string.h>
 
 #define CODE_TIMER 1
 #define RESULTS_FILE_FULL_NAME "/tmp/results.txt"
@@ -54,7 +55,7 @@ void shared_mem_open(const char *name, double **var, int *fd) {
 	printf("  P2 Shared opened\n");
 }
 
-void shared_mutex_open(const char *name, double **mutex, int *fd) {
+void shared_mutex_open(const char *name, pthread_mutex_t **mutex, int *fd) {
 	*fd = shm_open(name, O_RDWR, 0777);
 	if(*fd == -1) {
 		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
@@ -73,7 +74,7 @@ void shared_mutex_open(const char *name, double **mutex, int *fd) {
 static void sig_hndlr(int signo) {
 	if (signo == SIGUSR1) {
 		if (!flag_started) {
-			printf("  P2 Starting timer. Timer id: %i, Timer interval: %i\n", timerid, timer.it_interval.tv_nsec);
+			printf("  P2 Starting timer. Timer id: %i, Timer interval: %ld\n", timerid, timer.it_interval.tv_nsec);
 			timer_settime(timerid, 0, &timer, NULL);
 			flag_started = 1;
 		}
@@ -83,7 +84,7 @@ static void sig_hndlr(int signo) {
 		if (flag_started) {
 			close(*fd_shared_mem);
 			ChannelDestroy(chid);
-			close(resultFile);
+			fclose(resultFile);
 			exit(EXIT_SUCCESS);
 		}
 	}
@@ -147,7 +148,7 @@ int main(int argc, char *argv[]) {
 	char *shared_mem_name = argv[2];
 	char *shared_mutex_name = argv[3];
 	printf("  P2 ppid = %i, dt = %f,  shared_mem_name = %s\n", ppid, deltaT,  shared_mem_name);
-	printf("  P2 Flag started ptr = %i, val = %i\n", &flag_started, flag_started);
+	printf("  P2 Flag started ptr = %p, val = %i\n", &flag_started, flag_started);
 
 	// Initializing signals
 	signal(SIGUSR1, sig_hndlr);

@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <math.h>
 #include <signal.h>
+#include <string.h>
 
 const char *PROCNAME = "P1 process";
 
@@ -45,7 +46,7 @@ void shared_mem_open(const char *name, double **var, int *fd) {
 	close(*fd);
 }
 
-void shared_mutex_open(const char *name, double **mutex, int *fd) {
+void shared_mutex_open(const char *name, pthread_mutex_t **mutex, int *fd) {
 	*fd = shm_open(name, O_RDWR, 0777);
 	if(*fd == -1) {
 		fprintf(stderr, "%s: Error attaching shared memory '%s': %s\n",
@@ -89,8 +90,7 @@ void timer_tick_handle() {
 static void sig_hndlr(int signo) {
 	if (signo == SIGUSR1) {
 		if (!flag_started) {
-			printf(" P1 Starting timer. Timer id: %i, Timer interval: %i\n", timerid, timer.it_interval.tv_nsec);
-			int status = timer_settime(timerid, 0, &timer, NULL);
+			printf(" P1 Starting timer. Timer id: %i, Timer interval: %ld\n", timerid, timer.it_interval.tv_nsec);
 			flag_started = 1;
 		} else
 		{

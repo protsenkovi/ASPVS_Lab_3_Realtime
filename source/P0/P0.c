@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
+#include <string.h>
 
 #define T 83
 #define dt 0.03
@@ -115,7 +116,7 @@ void my_barrier() {
 int main(int argc, char *argv[]) {
 	printf("P0 started. Gid = %i\n", getgid());
 	int pid = getpid();
-	printf("P0 flag_started ptr = %i, val = %i", &flag_started, flag_started);
+	printf("P0 flag_started ptr = %p, val = %i", &flag_started, flag_started);
 
 	// Initializing barrier
 	bthreads = 0;
