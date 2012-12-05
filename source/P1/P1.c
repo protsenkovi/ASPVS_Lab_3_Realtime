@@ -54,7 +54,7 @@ void shared_mutex_open(const char *name, pthread_mutex_t **mutex, int *fd) {
 
 		exit(EXIT_FAILURE);
 	}
-	*mutex = mmap(0, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+	*mutex = mmap(0, sizeof(pthread_mutex_t), PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
 	if (*mutex == MAP_FAILED) {
 		fprintf(stderr, "%s: Error shared mem maping. %s\n", PROCNAME, strerror(errno));
 		exit(EXIT_FAILURE);

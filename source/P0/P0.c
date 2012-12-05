@@ -78,7 +78,7 @@ void shared_mutex_init(const char *name, pthread_mutex_t **mutex, int *fd) {
 
 		exit(EXIT_FAILURE);
 	}
-	int status = ftruncate(*fd, sizeof(double));
+	int status = ftruncate(*fd, sizeof(pthread_mutex_t));
 	if ( status == -1 ) {
 		fprintf(stderr, "%s: Error truncating shared memory '%s': status: %i\n%s\n",
 						PROCNAME, name, status,strerror(errno));
@@ -136,8 +136,8 @@ int main(int argc, char *argv[]) {
 	shared_mutex_init(shared_mutex_name, shared_mutex, fd_shared_mutex);
 
 	// Initializing arguments for P1 and starting it.
-	char *argv0 = (char*)malloc(sizeof(float));
-	char *argv1 = (char*)malloc(sizeof(float));
+	char *argv0 = (char*)malloc(11);
+	char *argv1 = (char*)malloc(11);
 	char *argv2 = (char*)malloc(strlen(shared_mem_name) + 1);
 	char *argv3 = (char*)malloc(strlen(shared_mutex_name) + 1);
 	sprintf(argv0, "%i", pid);
