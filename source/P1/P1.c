@@ -91,6 +91,7 @@ static void sig_hndlr(int signo) {
 	if (signo == SIGUSR1) {
 		if (!flag_started) {
 			printf(" P1 Starting timer. Timer id: %i, Timer interval: %ld\n", timerid, timer.it_interval.tv_nsec);
+			timer_settime(timerid, 0, &timer, NULL);
 			flag_started = 1;
 		} else
 		{
